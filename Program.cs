@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Mono.Options;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -45,11 +46,20 @@ namespace learn_achievement_migrate
         }
 
         public static void InjectAchievementIntoModuleYaml(FileInfo moduleIndexYamlFileInfo, Achievement achievement) {
-            // TODO: Find achievement YAML line.
-            // TODO: Put in serialized achievement (after figuring out what that is).
-            // TODO: Read: https://stackoverflow.com/a/45958279/48700
             // Handle the YAML file as-is, so we don't destroy any comments and only modify the exact lines.
-            Console.WriteLine("TODO: actually migrate the YAML");
+            var tempNewIndexYamlFile = Path.GetTempFileName();
+            var linesToKeep = File.ReadLines(moduleIndexYamlFileInfo.FullName) 
+                .Where(line => !line.StartsWith("achievement:"))
+                .Append("badge:")
+                .Append($"  uid: {achievement.Uid}")
+                .Append($"  title: {achievement.Title}")
+                .Append($"  summary: {achievement.Summary}")
+                .Append($"  iconUrl: {achievement.IconUrl}");
+            File.WriteAllLines(tempNewIndexYamlFile, linesToKeep);
+            File.Delete(moduleIndexYamlFileInfo.FullName);
+            File.Move(tempNewIndexYamlFile, moduleIndexYamlFileInfo.FullName);
+
+            Console.WriteLine($"Wrote new index.yml: {moduleIndexYamlFileInfo.FullName}.");
         }
 
         static void Main(string[] args) {
@@ -77,15 +87,35 @@ namespace learn_achievement_migrate
             }
 
             var achievementsFileName = achievementsFileInfo.Name;
-            var achievementsStreamReader = new StreamReader(AchievementsPath);
-            var achievementsDeserializer = new DeserializerBuilder()
-                .WithNamingConvention(new CamelCaseNamingConvention())
-                .Build();
-            var achievementList = achievementsDeserializer.Deserialize<AchievementsList>(achievementsStreamReader.ReadToEnd());
-            var badgesToProcess = achievementList.Achievements.Where(a => a.Type == "badge");
+            AchievementsList achievementList;
+            List<Achievement> badgesToProcess;
+            using (var achievementsStreamReader = new StreamReader(AchievementsPath)) {
+                var achievementsDeserializer = new DeserializerBuilder()
+                    .WithNamingConvention(new CamelCaseNamingConvention())
+                    .Build();
+                achievementList = achievementsDeserializer.Deserialize<AchievementsList>(achievementsStreamReader.ReadToEnd());
+                badgesToProcess = achievementList.Achievements.Where(a => a.Type == "badge").ToList();
+            }
 
             var moduleDirectoryInfos = modulesDirectoryInfo.GetDirectories();
             // TODO: Pre-parse all module index.yml files into something for easier searching.
+            var preparsedModuleIndexYamlFiles = moduleDirectoryInfos.Where(m => {
+                var moduleIndexYaml = m.GetFiles("index.yml").FirstOrDefault();
+                return moduleIndexYaml != null;
+            }).Select(m => {
+                var moduleIndexYaml = m.GetFiles("index.yml").Single();
+                using (var moduleYamlStreamReader = new StreamReader(moduleIndexYaml.FullName)) {
+                    Console.Write(".");
+                    // Console.WriteLine(moduleIndexYaml.FullName);
+                    var moduleDeserializer = new DeserializerBuilder()
+                        .WithNamingConvention(new CamelCaseNamingConvention())
+                        .Build();
+                    var moduleInfo = moduleDeserializer.Deserialize<Module>(moduleYamlStreamReader.ReadToEnd());
+
+                    return new { FileInfo = moduleIndexYaml, Module = moduleInfo };
+                }
+            }).ToList();
+            Console.Write("\n");
 
             var achievementsMatchedWithModules = new List<AchievementAndModuleMatch>();
             var achievementsWithIssues = new List<Achievement>();
@@ -93,27 +123,16 @@ namespace learn_achievement_migrate
 
             // TODO: Progress bar for achievement badges.
 
+            // To limit a run to a few edits, uncomment the following `Take` line.
+            // badgesToProcess = badgesToProcess.Take(5);
+
             foreach (var achievement in badgesToProcess) {
                 // Try to find a module folder with an index.yml containing a matching achievement UID.
-                var foundModuleIndexYamlFiles = moduleDirectoryInfos.Where(m => {
-                    var moduleIndexYaml = m.GetFiles("index.yml").FirstOrDefault();
-                    if (moduleIndexYaml == null) {
-                        return false;
-                    }
-
-                    var moduleYamlStreamReader = new StreamReader(moduleIndexYaml.FullName);
-                    var moduleDeserializer = new DeserializerBuilder()
-                        .WithNamingConvention(new CamelCaseNamingConvention())
-                        .Build();
-                    var moduleInfo = moduleDeserializer.Deserialize<Module>(moduleYamlStreamReader.ReadToEnd());
-
-                    return moduleInfo.Achievement == achievement.Uid;
-                }).Select(m => {
-                    var moduleIndexYaml = m.GetFiles("index.yml").Single();
-                    return moduleIndexYaml;
+                var foundModules = preparsedModuleIndexYamlFiles.Where(m => {
+                    return m.Module.Achievement == achievement.Uid;
                 });
 
-                var foundModulesCount = foundModuleIndexYamlFiles.Count();
+                var foundModulesCount = foundModules.Count();
 
                 if (foundModulesCount == 0) {
                     // No module found. Not processing deprecated achievement.
@@ -123,18 +142,18 @@ namespace learn_achievement_migrate
 
                 if (foundModulesCount > 1) {
                     // Multiple modules found for one achievement. Not processing achievement.
-                    foreach (var moduleIndexYaml in foundModuleIndexYamlFiles) {
-                        Console.WriteLine($" - {moduleIndexYaml.FullName}");
+                    foreach (var moduleInfo in foundModules) {
+                        Console.WriteLine($" - {moduleInfo.FileInfo.FullName}");
                     }
                     achievementsWithIssues.Add(achievement);
                     continue;
                 }
 
                 // NOTE: Currently limited to 1 module by above short-circuit, but this _should_ still work.
-                foreach (var foundModuleIndexYaml in foundModuleIndexYamlFiles) {
+                foreach (var foundModuleIndexYaml in foundModules) {
                     achievementsMatchedWithModules.Add(new AchievementAndModuleMatch() {
                         Achievement = achievement,
-                        ModuleIndexYamlFile = foundModuleIndexYaml
+                        ModuleIndexYamlFile = foundModuleIndexYaml.FileInfo
                     });
                     Console.Write(".");
                 }
@@ -179,6 +198,12 @@ namespace learn_achievement_migrate
         public string Uid { get; set; }
         [YamlMember(Alias = "achievement")]
         public string Achievement { get; set; }
+        [YamlMember(Alias = "badge")]
+        public AchievementBadge Badge { get; set; }
+        public class AchievementBadge {
+            [YamlMember(Alias = "uid")]
+            public string Uid { get; set; }
+        }
 
         // Stuff we don't care about, but YamlDotNet does.
         public class ModuleMetadata {
