@@ -11,15 +11,17 @@ namespace learn_achievement_migrate
 {
     class Program
     {
-        static OptionSet Options { get; } = new OptionSet { 
-            { "achievements=", "Path to a Microsoft Learn repo achievements.yml file.", p => AchievementsPath = p },
-            { "modules=", "Path to modules referenced by achievements.", p => ModulesPath = p },
-            { "h|help", "Show help message and exit.", h => ShouldShowHelp = h != null },
-        };
-        static string AchievementsPath { get; set; } = "C:\\dev\\learn-pr\\";
-        static string ModulesPath { get; set; } = "C:\\dev\\learn-pr\\learn-pr\\azure\\";
+        static FileInfo AchievementsFileInfo { get; set; } = new FileInfo("C:\\dev\\learn-pr\\");
+        static DirectoryInfo ModulesDirectoryInfo { get; set; } = new DirectoryInfo("C:\\dev\\learn-pr\\learn-pr\\azure\\");
         static List<string> ExtraArguments { get; set; }
         static bool ShouldShowHelp { get; set; } = false;
+
+        static OptionSet Options { get; } = new OptionSet { 
+            { "achievements=", "Path to a Microsoft Learn repo achievements.yml file.", p => AchievementsFileInfo = new FileInfo(p) },
+            { "modules=", "Path to modules referenced by achievements.", p => ModulesDirectoryInfo = new DirectoryInfo(p) },
+            { "h|help", "Show help message and exit.", h => ShouldShowHelp = h != null },
+        };
+
         static void ProcessArguments(string[] args) {
             try {
                 // parse the command line
@@ -32,8 +34,8 @@ namespace learn_achievement_migrate
         }
 
         private static void Debug_PrintOptions() {
-            Console.WriteLine($"{nameof(AchievementsPath)}: {AchievementsPath}");
-            Console.WriteLine($"{nameof(ModulesPath)}: {ModulesPath}");
+            Console.WriteLine($"AchievementsPath: {AchievementsFileInfo.FullName}");
+            Console.WriteLine($"ModulesPath: {ModulesDirectoryInfo.FullName}");
             Console.WriteLine($"{nameof(ShouldShowHelp)}: {ShouldShowHelp}");
         }
 
@@ -62,6 +64,18 @@ namespace learn_achievement_migrate
             Console.WriteLine($"Wrote new index.yml: {moduleIndexYamlFileInfo.FullName}.");
         }
 
+        public static bool ArePathsValid() {
+            if (!AchievementsFileInfo.Exists) {
+                Console.WriteLine($"Achievements YAML file not found: {AchievementsFileInfo.FullName}");
+                return false;
+            }
+            if (!ModulesDirectoryInfo.Exists) {
+                Console.WriteLine($"Modules directory not found: {ModulesDirectoryInfo.FullName}.");
+                return false;
+            }
+            return true;
+        }
+
         static void Main(string[] args) {
             ProcessArguments(args);
 
@@ -69,27 +83,22 @@ namespace learn_achievement_migrate
 
             if (ShouldShowHelp) {
                 ShowHelp(Options);
+                Console.WriteLine("Exiting without any changes.");
                 Console.Read();
                 return;
             }
 
-            var achievementsFileInfo = new FileInfo(AchievementsPath);
-            if (!achievementsFileInfo.Exists) {
-                Console.WriteLine($"Achievements YAML file not found: {AchievementsPath}");
-                Console.Read();
-                return;
-            }
-            var modulesDirectoryInfo = new DirectoryInfo(ModulesPath);
-            if (!modulesDirectoryInfo.Exists) {
-                Console.WriteLine($"Modules directory not found: {AchievementsPath}.");
+            var arePathsValid = ArePathsValid();
+            if (!arePathsValid) {
+                Console.WriteLine("Exiting without any changes.");
                 Console.Read();
                 return;
             }
 
-            var achievementsFileName = achievementsFileInfo.Name;
+            var achievementsFileName = AchievementsFileInfo.Name;
             AchievementsList achievementList;
             List<Achievement> badgesToProcess;
-            using (var achievementsStreamReader = new StreamReader(AchievementsPath)) {
+            using (var achievementsStreamReader = new StreamReader(AchievementsFileInfo.FullName)) {
                 var achievementsDeserializer = new DeserializerBuilder()
                     .WithNamingConvention(new CamelCaseNamingConvention())
                     .Build();
@@ -97,16 +106,13 @@ namespace learn_achievement_migrate
                 badgesToProcess = achievementList.Achievements.Where(a => a.Type == "badge").ToList();
             }
 
-            var moduleDirectoryInfos = modulesDirectoryInfo.GetDirectories();
-            // TODO: Pre-parse all module index.yml files into something for easier searching.
+            var moduleDirectoryInfos = ModulesDirectoryInfo.GetDirectories();
             var preparsedModuleIndexYamlFiles = moduleDirectoryInfos.Where(m => {
                 var moduleIndexYaml = m.GetFiles("index.yml").FirstOrDefault();
                 return moduleIndexYaml != null;
             }).Select(m => {
                 var moduleIndexYaml = m.GetFiles("index.yml").Single();
                 using (var moduleYamlStreamReader = new StreamReader(moduleIndexYaml.FullName)) {
-                    Console.Write(".");
-                    // Console.WriteLine(moduleIndexYaml.FullName);
                     var moduleDeserializer = new DeserializerBuilder()
                         .WithNamingConvention(new CamelCaseNamingConvention())
                         .Build();
@@ -118,12 +124,10 @@ namespace learn_achievement_migrate
             Console.Write("\n");
 
             var achievementsMatchedWithModules = new List<AchievementAndModuleMatch>();
-            var achievementsWithIssues = new List<Achievement>();
-            var achievementsForDeprecatedModules = new List<Achievement>();
+            var badgesWithIssues = new List<Achievement>();
+            var badgesForDeprecatedModules = new List<Achievement>();
 
-            // TODO: Progress bar for achievement badges.
-
-            // To limit a run to a few edits, uncomment the following `Take` line.
+            // To limit a run to a few edits for a test run, uncomment the following `Take` line.
             // badgesToProcess = badgesToProcess.Take(5);
 
             foreach (var achievement in badgesToProcess) {
@@ -136,7 +140,7 @@ namespace learn_achievement_migrate
 
                 if (foundModulesCount == 0) {
                     // No module found. Not processing deprecated achievement.
-                    achievementsForDeprecatedModules.Add(achievement);
+                    badgesForDeprecatedModules.Add(achievement);
                     continue;
                 }
 
@@ -145,7 +149,7 @@ namespace learn_achievement_migrate
                     foreach (var moduleInfo in foundModules) {
                         Console.WriteLine($" - {moduleInfo.FileInfo.FullName}");
                     }
-                    achievementsWithIssues.Add(achievement);
+                    badgesWithIssues.Add(achievement);
                     continue;
                 }
 
@@ -169,23 +173,48 @@ namespace learn_achievement_migrate
                 }
             }
 
-            if (achievementsForDeprecatedModules.Any()) {
+            // TODO: Adapt system to work with existing achievements YAML without loss of trophies or comments.
+            if (badgesForDeprecatedModules.Any()) {
                 Console.WriteLine();
                 Console.WriteLine("Achievements considered deprecated");
                 Console.WriteLine("---");
-                foreach (var deprecatedAchievement in achievementsForDeprecatedModules) {
+                foreach (var deprecatedAchievement in badgesForDeprecatedModules) {
                     Console.WriteLine($" * {deprecatedAchievement.Uid}");
                 }
+
+                // Output all in achievementsWithIssues to new achievements-badges-deprecated.yml file. (Then compare results to original achievements.yml since dealing with comments would be tough.)
+                var achievementsYamlHeader = new[] {
+                    "### YamlMime:Achievements",
+                    "achievements:",
+                };
+                var deprecatedAchievementsYamlDestinationPath = Path.Combine(AchievementsFileInfo.Directory.FullName, "achievements-badges-deprecated.yml");
+                Console.WriteLine(deprecatedAchievementsYamlDestinationPath);
+                var tempNewIndexYamlFile = Path.GetTempFileName();
+                var deprecatedAchievementsLines = achievementsYamlHeader
+                    .Concat(badgesForDeprecatedModules
+                        .SelectMany(a => {
+                            return new[] {
+                                $"- uid: {a.Uid}",
+                                $"  type: badge",
+                                $"  title: {a.Title}",
+                                $"  summary: {a.Summary}",
+                                $"  iconUrl: {a.IconUrl}"
+                            };
+                        })).ToList();
+                File.WriteAllLines(tempNewIndexYamlFile, deprecatedAchievementsLines);
+                File.Delete(deprecatedAchievementsYamlDestinationPath);
+                File.Move(tempNewIndexYamlFile, deprecatedAchievementsYamlDestinationPath);
+
+                Console.WriteLine($"Wrote new deprecated achievements: {deprecatedAchievementsYamlDestinationPath}.");
             }
 
-            if (achievementsWithIssues.Any()) {
+            if (badgesWithIssues.Any()) {
                 Console.WriteLine();
                 Console.WriteLine("Achievements with issues");
                 Console.WriteLine("---");
-                foreach (var achievementWithIssue in achievementsWithIssues) {
-                    Console.WriteLine($" * {achievementWithIssue.Uid}");
+                foreach (var badgeWithIssue in badgesWithIssues) {
+                    Console.WriteLine($" * {badgeWithIssue.Uid}");
                 }
-                // TODO: Output all in achievementsForDeprecatedModules to new achievements-next.yml file. (Then compare results to original achievements.yml since dealing with comments would be tough.)
             }
         }
     }
@@ -203,6 +232,12 @@ namespace learn_achievement_migrate
         public class AchievementBadge {
             [YamlMember(Alias = "uid")]
             public string Uid { get; set; }
+            [YamlMember(Alias = "title")]
+            public string Title { get; set; }
+            [YamlMember(Alias = "summary")]
+            public string Summary { get; set; }
+            [YamlMember(Alias = "iconUrl")]
+            public string IconUrl { get; set; }
         }
 
         // Stuff we don't care about, but YamlDotNet does.
