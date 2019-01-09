@@ -173,41 +173,6 @@ namespace learn_achievement_migrate
                 }
             }
 
-            // TODO: Adapt system to work with existing achievements YAML without loss of trophies or comments.
-            if (badgesForDeprecatedModules.Any()) {
-                Console.WriteLine();
-                Console.WriteLine("Achievements considered deprecated");
-                Console.WriteLine("---");
-                foreach (var deprecatedAchievement in badgesForDeprecatedModules) {
-                    Console.WriteLine($" * {deprecatedAchievement.Uid}");
-                }
-
-                // Output all in achievementsWithIssues to new achievements-badges-deprecated.yml file. (Then compare results to original achievements.yml since dealing with comments would be tough.)
-                var achievementsYamlHeader = new[] {
-                    "### YamlMime:Achievements",
-                    "achievements:",
-                };
-                var deprecatedAchievementsYamlDestinationPath = Path.Combine(AchievementsFileInfo.Directory.FullName, "achievements-badges-deprecated.yml");
-                Console.WriteLine(deprecatedAchievementsYamlDestinationPath);
-                var tempNewIndexYamlFile = Path.GetTempFileName();
-                var deprecatedAchievementsLines = achievementsYamlHeader
-                    .Concat(badgesForDeprecatedModules
-                        .SelectMany(a => {
-                            return new[] {
-                                $"- uid: {a.Uid}",
-                                $"  type: badge",
-                                $"  title: {a.Title}",
-                                $"  summary: {a.Summary}",
-                                $"  iconUrl: {a.IconUrl}"
-                            };
-                        })).ToList();
-                File.WriteAllLines(tempNewIndexYamlFile, deprecatedAchievementsLines);
-                File.Delete(deprecatedAchievementsYamlDestinationPath);
-                File.Move(tempNewIndexYamlFile, deprecatedAchievementsYamlDestinationPath);
-
-                Console.WriteLine($"Wrote new deprecated achievements: {deprecatedAchievementsYamlDestinationPath}.");
-            }
-
             if (badgesWithIssues.Any()) {
                 Console.WriteLine();
                 Console.WriteLine("Achievements with issues");
@@ -216,6 +181,59 @@ namespace learn_achievement_migrate
                     Console.WriteLine($" * {badgeWithIssue.Uid}");
                 }
             }
+
+            UpdateAchievementsYamlFile(AchievementsFileInfo, achievementsMatchedWithModules);
+        }
+
+        public static void UpdateAchievementsYamlFile(FileInfo achievementFileInfo, List<AchievementAndModuleMatch> badgesToRemove) {
+            Console.WriteLine();
+            Console.WriteLine("Writing proposed achievements YAML");
+            Console.WriteLine("---");
+
+            var existingAchievementLines = File.ReadAllLines(achievementFileInfo.FullName);
+            var remainingAchievementLines = new List<string>();
+            foreach (var badgeMigrated in badgesToRemove) {
+                Console.WriteLine($"{badgeMigrated.Achievement.Uid}");
+            }
+            for (int lineIndex = 0; lineIndex < existingAchievementLines.Length; lineIndex += 1) {
+                var line = existingAchievementLines[lineIndex];
+                if (!line.StartsWith("- uid:")) {
+                    // Not a UID line, add by default.
+                    remainingAchievementLines.Add(line);
+                    Console.WriteLine($"+ {line}");
+                    continue;
+                }
+
+                var lineUid = line.Split(":", StringSplitOptions.None).Select(s => s.Trim()).Skip(1).FirstOrDefault();
+                if (string.IsNullOrEmpty(lineUid)) {
+                    // Not able to parse out UID properly; skipping for now.
+                    remainingAchievementLines.Add(line);
+                    Console.WriteLine($"+ {line}");
+                    continue;
+                }
+
+                Console.WriteLine($"\"{lineUid}\"");
+                var isMigratedUid = badgesToRemove.Any(b => b.Achievement.Uid == lineUid);
+                if (!isMigratedUid) {
+                    // Not a migrated badge UID, add by default (rest of badge should hit above condition for adding).
+                    remainingAchievementLines.Add(line);
+                    Console.WriteLine($"+ {line}");
+                    continue;
+                }
+                
+                // Else: UID line of a badge that was migrated; skip it and sibling data.
+                // NOTE: Assumes a badge is exactly 5 lines (uid, type, title, summary, and iconUrl).
+                lineIndex += 4;
+                Console.WriteLine($"- {line}");
+            }
+
+            // TODO: Overwrite the source achievement file.
+            var proposedAchievementsYamlDestinationPath = Path.Combine(AchievementsFileInfo.Directory.FullName, "achievements-proposed.yml");
+            Console.WriteLine(proposedAchievementsYamlDestinationPath);
+            var tempProposedAchievementsYamlFile = Path.GetTempFileName();
+            File.WriteAllLines(tempProposedAchievementsYamlFile, remainingAchievementLines);
+            File.Delete(proposedAchievementsYamlDestinationPath);
+            File.Move(tempProposedAchievementsYamlFile, proposedAchievementsYamlDestinationPath);
         }
     }
 }
