@@ -11,11 +11,9 @@ namespace learn_achievement_migrate
 {
     class Program
     {
-        static FileInfo AchievementsFileInfo { get; set; } = new FileInfo("C:\\dev\\learn-pr\\achievements.yml");
-        static List<DirectoryInfo> ModulesDirectoryInfos { get; set; } = new List<DirectoryInfo> {
-            new DirectoryInfo("C:\\dev\\learn-pr\\learn-pr\\azure\\")
-        };
-        static DirectoryInfo LearningPathsDirectoryInfo { get; set; } = new DirectoryInfo("C:\\dev\\learn-pr\\learn-pr\\paths\\");
+        static FileInfo AchievementsFileInfo { get; set; }
+        static List<DirectoryInfo> ModulesDirectoryInfos { get; set; }
+        static DirectoryInfo LearningPathsDirectoryInfo { get; set; }
         static List<string> ExtraArguments { get; set; }
         static bool ShouldShowHelp { get; set; } = false;
 
@@ -30,6 +28,20 @@ namespace learn_achievement_migrate
             try {
                 // parse the command line
                 ExtraArguments = Options.Parse(args);
+                AchievementsFileInfo = AchievementsFileInfo ?? new FileInfo("C:\\dev\\learn-pr\\achievements.yml");
+                if (AchievementsFileInfo.Exists && ModulesDirectoryInfos == null && LearningPathsDirectoryInfo == null) {
+                    // We were given an achievements.yml file but none of the rest, try to guess some common-sense options.
+                    string pathsFolderName = "paths";
+                    List<string> ignoreFolders = new List<string> {
+                        "achievements",
+                        "includes",
+                        pathsFolderName,
+                    };
+                    var achievementParentDirectoryInfo = AchievementsFileInfo.Directory;
+                    var achievementSiblingDirectoryInfos = achievementParentDirectoryInfo.GetDirectories();
+                    ModulesDirectoryInfos = achievementSiblingDirectoryInfos.Where(d => !ignoreFolders.Contains(d.Name)).ToList();
+                    LearningPathsDirectoryInfo = achievementSiblingDirectoryInfos.Where(d => d.Name == pathsFolderName).FirstOrDefault();
+                }
             } catch (OptionException e) {
                 Console.WriteLine(e.Message);
                 Console.WriteLine("Try `--help' for more information.");
@@ -68,18 +80,32 @@ namespace learn_achievement_migrate
 
         public static bool ArePathsValid() {
             var isEverythingValid = true;
-            if (!AchievementsFileInfo.Exists) {
+            if (AchievementsFileInfo == null) {
+                Console.WriteLine($"Achievements YAML parameter null");
+                isEverythingValid = false;
+            }
+            else if (!AchievementsFileInfo.Exists) {
                 Console.WriteLine($"Achievements YAML file not found: {AchievementsFileInfo.FullName}");
                 isEverythingValid = false;
             }
-            var modulesDirectoriesNotFound = ModulesDirectoryInfos.Where(di => !di.Exists);
-            if (modulesDirectoriesNotFound.Any()) {
-                foreach (var moduleDirectoryInfo in modulesDirectoriesNotFound) {
-                    Console.WriteLine($"Module directory not found: {moduleDirectoryInfo}");
-                }
+            if (ModulesDirectoryInfos == null) {
+                Console.WriteLine($"Module directories parameter null");
                 isEverythingValid = false;
             }
-            if (!LearningPathsDirectoryInfo.Exists) {
+            else {
+                var modulesDirectoriesNotFound = ModulesDirectoryInfos.Where(di => !di.Exists);
+                if (modulesDirectoriesNotFound.Any()) {
+                    foreach (var moduleDirectoryInfo in modulesDirectoriesNotFound) {
+                        Console.WriteLine($"Module directory not found: {moduleDirectoryInfo}");
+                    }
+                    isEverythingValid = false;
+                }
+            }
+            if (LearningPathsDirectoryInfo == null) {
+                Console.WriteLine($"Learning path directory parameter null");
+                isEverythingValid = false;
+            }
+            else if (!LearningPathsDirectoryInfo.Exists) {
                 Console.WriteLine($"Learning paths directory not found: {LearningPathsDirectoryInfo.FullName}.");
                 isEverythingValid = false;
             }
