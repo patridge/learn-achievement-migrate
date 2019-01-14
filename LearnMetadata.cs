@@ -7,6 +7,7 @@ namespace learn_achievement_migrate
         public string description { get; set; }
         [YamlMember(Alias = "ms.date")]
         public string msDate { get; set; }
+        public string brand { get; set; }
         public string author { get; set; }
         [YamlMember(Alias = "ms.author")]
         public string msAuthor { get; set; }

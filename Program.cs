@@ -106,17 +106,13 @@ namespace learn_achievement_migrate
             }
 
             var achievementsFileName = AchievementsFileInfo.Name;
-            AchievementsList achievementList;
-            List<Achievement> badgesToProcess;
-            List<Achievement> trophiesToProcess;
+            List<Achievement> achievementsToProcess;
             using (var achievementsStreamReader = new StreamReader(AchievementsFileInfo.FullName)) {
                 var achievementsDeserializer = new DeserializerBuilder()
                     .WithNamingConvention(new CamelCaseNamingConvention())
                     .Build();
-                achievementList = achievementsDeserializer.Deserialize<AchievementsList>(achievementsStreamReader.ReadToEnd());
-                var allAchievementsToProcess = achievementList.Achievements.ToList();
-                badgesToProcess = allAchievementsToProcess.Where(a => a.Type == "badge").ToList();
-                trophiesToProcess = allAchievementsToProcess.Where(a => a.Type == "trophy").ToList();
+                AchievementsList achievementList = achievementsDeserializer.Deserialize<AchievementsList>(achievementsStreamReader.ReadToEnd());
+                achievementsToProcess = achievementList.Achievements.ToList();
             }
 
             var moduleDirectoryInfos = ModulesDirectoryInfos.SelectMany(di => di.GetDirectories()).ToList();
@@ -131,7 +127,10 @@ namespace learn_achievement_migrate
                         .Build();
                     var moduleInfo = moduleDeserializer.Deserialize<Module>(moduleYamlStreamReader.ReadToEnd());
 
-                    return new { FileInfo = moduleIndexYaml, Module = moduleInfo };
+                    return new ParsedLearnElementAndSourceIndexYaml {
+                        IndexYamlFileInfo = moduleIndexYaml,
+                        LearnElement = moduleInfo
+                    };
                 }
             }).ToList();
             Console.Write("\n");
@@ -148,124 +147,79 @@ namespace learn_achievement_migrate
                         .Build();
                     var learningPathInfo = learningPathDeserializer.Deserialize<LearningPath>(learningPathYamlStreamReader.ReadToEnd());
 
-                    return new { FileInfo = learningPathIndexYaml, LearningPath = learningPathInfo };
+                    return new ParsedLearnElementAndSourceIndexYaml {
+                        LearnElement = learningPathInfo,
+                        IndexYamlFileInfo = learningPathIndexYaml
+                    };
                 }
             }).ToList();
             Console.Write("\n");
 
-            var trophyAchievementsMatchedWithLearningPaths = new List<AchievmentAndIndexYamlMatch>();
-            var trophiesWithIssues = new List<Achievement>();
-            var trophiesForDeprecatedLearningPaths = new List<Achievement>();
+            var achievementsMatchedWithIndexYaml = new List<AchievmentAndIndexYamlMatch>();
+            var achievementsWithIssues = new List<Achievement>();
+            var achievementsForDeprecatedElements = new List<Achievement>();
 
-            foreach (var trophyAchievement in trophiesToProcess) {
-                // Try to find a module folder with an index.yml containing a matching achievement UID.
-                var foundLearningPaths = preparsedLearningPathIndexYamlFiles.Where(lp => {
-                    return lp.LearningPath.Achievement == trophyAchievement.Uid;
-                });
+            foreach (var achievement in achievementsToProcess) {
+                var matchedIndexYamls = new List<ParsedLearnElementAndSourceIndexYaml>();
+                List<ParsedLearnElementAndSourceIndexYaml> collectionToSearch = new List<ParsedLearnElementAndSourceIndexYaml>();
+                if (achievement.Type == "trophy") {
+                    // Search learning paths for trophies.
+                    collectionToSearch = preparsedLearningPathIndexYamlFiles;
+                }
+                else if (achievement.Type == "badge") {
+                    // Search modules for badges.
+                    collectionToSearch = preparsedModuleIndexYamlFiles;
+                }
+                matchedIndexYamls = collectionToSearch.Where(m => {
+                    return m.LearnElement.Achievement == achievement.Uid;
+                }).ToList();
 
-                var foundLearningPathsCount = foundLearningPaths.Count();
-                if (foundLearningPathsCount == 0) {
+                var matchedIndexYamlsCount = matchedIndexYamls.Count();
+                if (matchedIndexYamlsCount == 0) {
                     // No learning path found. Not processing deprecated achievement.
-                    trophiesForDeprecatedLearningPaths.Add(trophyAchievement);
+                    achievementsForDeprecatedElements.Add(achievement);
                     continue;
                 }
 
-                if (foundLearningPathsCount > 1) {
+                if (matchedIndexYamlsCount > 1) {
                     // Multiple learning paths found for one achievement. Not processing achievement.
-                    Console.WriteLine($"Found multiple modules for achievement: {trophyAchievement.Uid}");
-                    foreach (var learningPathInfo in foundLearningPaths) {
-                        Console.WriteLine($" - {learningPathInfo.FileInfo.FullName}");
+                    Console.WriteLine($"Found multiple items for achievement: {achievement.Uid}");
+                    foreach (var learningPathInfo in matchedIndexYamls) {
+                        Console.WriteLine($" - {learningPathInfo.IndexYamlFileInfo.FullName}");
                     }
-                    trophiesWithIssues.Add(trophyAchievement);
+                    achievementsWithIssues.Add(achievement);
                     continue;
                 }
 
-                // NOTE: Currently limited to 1 learning path by above short-circuit, but this _should_ still work for multiple.
-                foreach (var foundIndexYaml in foundLearningPaths) {
-                    trophyAchievementsMatchedWithLearningPaths.Add(new AchievmentAndIndexYamlMatch() {
-                        Achievement = trophyAchievement,
-                        IndexYamlFile = foundIndexYaml.FileInfo
+                // NOTE: Currently limited to 1 matched location by above short-circuit, but this _should_ still work for multiple.
+                foreach (var foundIndexYaml in matchedIndexYamls) {
+                    achievementsMatchedWithIndexYaml.Add(new AchievmentAndIndexYamlMatch() {
+                        Achievement = achievement,
+                        IndexYamlFileInfo = foundIndexYaml.IndexYamlFileInfo
                     });
                     Console.Write(".");
                 }
             }
 
-            var badgeAchievementsMatchedWithModules = new List<AchievmentAndIndexYamlMatch>();
-            var badgesWithIssues = new List<Achievement>();
-            var badgesForDeprecatedModules = new List<Achievement>();
-
-            foreach (var badgeAchievement in badgesToProcess) {
-                // Try to find a module folder with an index.yml containing a matching achievement UID.
-                var foundModules = preparsedModuleIndexYamlFiles.Where(m => {
-                    return m.Module.Achievement == badgeAchievement.Uid;
-                });
-
-                var foundModulesCount = foundModules.Count();
-
-                if (foundModulesCount == 0) {
-                    // No module found. Not processing deprecated achievement.
-                    badgesForDeprecatedModules.Add(badgeAchievement);
-                    continue;
-                }
-
-                if (foundModulesCount > 1) {
-                    // Multiple modules found for one achievement. Not processing achievement.
-                    Console.WriteLine($"Found multiple modules for achievement: {badgeAchievement.Uid}");
-                    foreach (var moduleInfo in foundModules) {
-                        Console.WriteLine($" - {moduleInfo.FileInfo.FullName}");
-                    }
-                    badgesWithIssues.Add(badgeAchievement);
-                    continue;
-                }
-
-                // NOTE: Currently limited to 1 module by above short-circuit, but this _should_ still work for multiple.
-                foreach (var foundModuleIndexYaml in foundModules) {
-                    badgeAchievementsMatchedWithModules.Add(new AchievmentAndIndexYamlMatch() {
-                        Achievement = badgeAchievement,
-                        IndexYamlFile = foundModuleIndexYaml.FileInfo
-                    });
-                    Console.Write(".");
-                }
-            }
-            Console.Write("\n");
-
-            if (badgeAchievementsMatchedWithModules.Any()) {
+            if (achievementsMatchedWithIndexYaml.Any()) {
                 Console.WriteLine();
-                Console.WriteLine("Migrating achievement to module YAML");
+                Console.WriteLine("Migrating achievement to child YAMLs");
                 Console.WriteLine("---");
-                foreach (var match in badgeAchievementsMatchedWithModules) {
-                    InjectAchievementIntoChildYaml(match.IndexYamlFile, match.Achievement);
+                foreach (var match in achievementsMatchedWithIndexYaml) {
+                    InjectAchievementIntoChildYaml(match.IndexYamlFileInfo, match.Achievement);
                 }
             }
 
-            if (badgesWithIssues.Any()) {
+            if (achievementsWithIssues.Any()) {
                 Console.WriteLine();
-                Console.WriteLine("Badge achievements with issues");
+                Console.WriteLine("Achievements with issues");
                 Console.WriteLine("---");
-                foreach (var badgeWithIssue in badgesWithIssues) {
-                    Console.WriteLine($" * {badgeWithIssue.Uid}");
+                foreach (var achievementWithIssue in achievementsWithIssues) {
+                    Console.WriteLine($" * {achievementWithIssue.Uid}");
                 }
             }
 
-            if (trophyAchievementsMatchedWithLearningPaths.Any()) {
-                Console.WriteLine();
-                Console.WriteLine("Migrating achievement to learning path YAML");
-                Console.WriteLine("---");
-                foreach (var match in trophyAchievementsMatchedWithLearningPaths) {
-                    InjectAchievementIntoChildYaml(match.IndexYamlFile, match.Achievement);
-                }
-            }
-
-            if (trophiesWithIssues.Any()) {
-                Console.WriteLine();
-                Console.WriteLine("Trophy achievements with issues");
-                Console.WriteLine("---");
-                foreach (var trophyWithIssue in trophiesWithIssues) {
-                    Console.WriteLine($" * {trophyWithIssue.Uid}");
-                }
-            }
-
-            UpdateRootAchievementsYamlFile(AchievementsFileInfo, badgeAchievementsMatchedWithModules.Concat(trophyAchievementsMatchedWithLearningPaths).ToList());
+            UpdateRootAchievementsYamlFile(AchievementsFileInfo, achievementsMatchedWithIndexYaml);
         }
 
         public static void UpdateRootAchievementsYamlFile(FileInfo achievementFileInfo, List<AchievmentAndIndexYamlMatch> achievementsToRemove) {
