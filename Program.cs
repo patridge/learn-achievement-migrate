@@ -12,14 +12,16 @@ namespace learn_achievement_migrate
     class Program
     {
         static FileInfo AchievementsFileInfo { get; set; } = new FileInfo("C:\\dev\\learn-pr\\achievements.yml");
-        static DirectoryInfo ModulesDirectoryInfo { get; set; } = new DirectoryInfo("C:\\dev\\learn-pr\\learn-pr\\azure\\");
+        static List<DirectoryInfo> ModulesDirectoryInfos { get; set; } = new List<DirectoryInfo> {
+            new DirectoryInfo("C:\\dev\\learn-pr\\learn-pr\\azure\\")
+        };
         static DirectoryInfo LearningPathsDirectoryInfo { get; set; } = new DirectoryInfo("C:\\dev\\learn-pr\\learn-pr\\paths\\");
         static List<string> ExtraArguments { get; set; }
         static bool ShouldShowHelp { get; set; } = false;
 
         static OptionSet Options { get; } = new OptionSet { 
             { "achievements=", "Path to a Microsoft Learn repo achievements.yml file.", p => AchievementsFileInfo = new FileInfo(p) },
-            { "modules=", "Path to modules referenced by achievements.", p => ModulesDirectoryInfo = new DirectoryInfo(p) },
+            { "modules=", "Path(s) to modules referenced by achievements, separated by semicolon (;) for multiple paths.", paths => ModulesDirectoryInfos = paths.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(p => new DirectoryInfo(p)).ToList() },
             { "learningPaths=", "Path to learning paths directory reference by achievements.", p => LearningPathsDirectoryInfo = new DirectoryInfo(p) },
             { "h|help", "Show help message and exit.", h => ShouldShowHelp = h != null },
         };
@@ -37,7 +39,7 @@ namespace learn_achievement_migrate
 
         private static void Debug_PrintOptions() {
             Console.WriteLine($"AchievementsPath: {AchievementsFileInfo.FullName}");
-            Console.WriteLine($"ModulesPath: {ModulesDirectoryInfo.FullName}");
+            Console.WriteLine($"ModulesPaths: {string.Join(";", ModulesDirectoryInfos.Select(di => di.FullName))}");
             Console.WriteLine($"{nameof(ShouldShowHelp)}: {ShouldShowHelp}");
         }
 
@@ -65,19 +67,23 @@ namespace learn_achievement_migrate
         }
 
         public static bool ArePathsValid() {
+            var isEverythingValid = true;
             if (!AchievementsFileInfo.Exists) {
                 Console.WriteLine($"Achievements YAML file not found: {AchievementsFileInfo.FullName}");
-                return false;
+                isEverythingValid = false;
             }
-            if (!ModulesDirectoryInfo.Exists) {
-                Console.WriteLine($"Modules directory not found: {ModulesDirectoryInfo.FullName}.");
-                return false;
+            var modulesDirectoriesNotFound = ModulesDirectoryInfos.Where(di => !di.Exists);
+            if (modulesDirectoriesNotFound.Any()) {
+                foreach (var moduleDirectoryInfo in modulesDirectoriesNotFound) {
+                    Console.WriteLine($"Module directory not found: {moduleDirectoryInfo}");
+                }
+                isEverythingValid = false;
             }
             if (!LearningPathsDirectoryInfo.Exists) {
                 Console.WriteLine($"Learning paths directory not found: {LearningPathsDirectoryInfo.FullName}.");
-                return false;
+                isEverythingValid = false;
             }
-            return true;
+            return isEverythingValid;
         }
 
         static void Main(string[] args) {
@@ -113,7 +119,7 @@ namespace learn_achievement_migrate
                 trophiesToProcess = allAchievementsToProcess.Where(a => a.Type == "trophy").ToList();
             }
 
-            var moduleDirectoryInfos = ModulesDirectoryInfo.GetDirectories();
+            var moduleDirectoryInfos = ModulesDirectoryInfos.SelectMany(di => di.GetDirectories()).ToList();
             var preparsedModuleIndexYamlFiles = moduleDirectoryInfos.Where(m => {
                 var moduleIndexYaml = m.GetFiles("index.yml").FirstOrDefault();
                 return moduleIndexYaml != null;
