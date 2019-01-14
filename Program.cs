@@ -289,13 +289,12 @@ namespace learn_achievement_migrate
                 Console.WriteLine($"- {line}");
             }
 
-            // TODO: Overwrite the source achievement file.
-            var proposedAchievementsYamlDestinationPath = Path.Combine(AchievementsFileInfo.Directory.FullName, "achievements-proposed.yml");
-            Console.WriteLine(proposedAchievementsYamlDestinationPath);
+            // Overwrite the original achievement file.
+            Console.WriteLine("Updating achievements.yml file");
             var tempProposedAchievementsYamlFile = Path.GetTempFileName();
             File.WriteAllLines(tempProposedAchievementsYamlFile, remainingAchievementLines);
-            File.Delete(proposedAchievementsYamlDestinationPath);
-            File.Move(tempProposedAchievementsYamlFile, proposedAchievementsYamlDestinationPath);
+            File.Delete(AchievementsFileInfo.FullName);
+            File.Move(tempProposedAchievementsYamlFile, AchievementsFileInfo.FullName);
         }
     }
 }

@@ -22,9 +22,6 @@ Assuming your Learn-style repo is structured as expected, you can provide only t
     dotnet run --achievements="C:\dev\learn-windows-pr\learn-windows-pr\achievements.yml"
     ```
 
-    This will result in edits to various matched modules and learning paths as well as a new file: achievements-proposed.yml. This is the modified result of pulling lines from achievements.yml to put them in modules and learning paths.
-
-1. To use the new achievements-proposed.yml file, delete the original achievements.yml and rename the new one to take its place.
 1. Stage and commit your work to a branch and submit a pull request.
 
 ### Run the migration tool (custom mode)
@@ -47,7 +44,8 @@ If you need to specify the various paths where modules can hide and/or the path 
     dotnet run --achievements="C:\dev\learn-bizapps-pr\learn-bizapps-pr\achievements.yml" --modules="C:\dev\learn-bizapps-pr\learn-bizapps-pr\dyn365-customer-service;C:\dev\learn-bizapps-pr\learn-bizapps-pr\dyn365-field-service;C:\dev\learn-bizapps-pr\learn-bizapps-pr\flow;C:\dev\learn-bizapps-pr\learn-bizapps-pr\powerapps;C:\dev\learn-bizapps-pr\learn-bizapps-pr\power-bi;" --learningPaths="C:\dev\learn-bizapps-pr\learn-bizapps-pr\paths"
     ```
 
-    This will result in edits to various matched modules and learning paths as well as a new file: achievements-proposed.yml. This is the modified result of pulling lines from achievements.yml to put them in modules and learning paths.
-
-1. To use the new achievements-proposed.yml file, delete the original achievements.yml and rename the new one to take its place.
 1. Stage and commit your work to a branch and submit a pull request.
+
+### Future plans
+
+* Offer releases with an executable to run directly (without the .NET Core SDK)
