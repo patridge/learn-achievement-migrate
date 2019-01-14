@@ -2,8 +2,8 @@ using System.IO;
 
 namespace learn_achievement_migrate
 {
-    class AchievementAndModuleMatch {
+    class AchievmentAndIndexYamlMatch {
         public Achievement Achievement { get; set; }
-        public FileInfo ModuleIndexYamlFile { get; set; }
+        public FileInfo IndexYamlFile { get; set; }
     }
 }
