@@ -50,13 +50,11 @@ namespace learn_achievement_migrate
         public static void InjectAchievementIntoModuleYaml(FileInfo moduleIndexYamlFileInfo, Achievement achievement) {
             // Handle the YAML file as-is, so we don't destroy any comments and only modify the exact lines.
             var tempNewIndexYamlFile = Path.GetTempFileName();
+            // NOTE: If more values from the source achievement are ever needed, serialize them here with more `.Append($"  field: {achievement.Field}")` lines.
             var linesToKeep = File.ReadLines(moduleIndexYamlFileInfo.FullName) 
                 .Where(line => !line.StartsWith("achievement:"))
                 .Append("badge:")
-                .Append($"  uid: {achievement.Uid}")
-                .Append($"  title: {achievement.Title}")
-                .Append($"  summary: {achievement.Summary}")
-                .Append($"  iconUrl: {achievement.IconUrl}");
+                .Append($"  uid: {achievement.Uid}");
             File.WriteAllLines(tempNewIndexYamlFile, linesToKeep);
             File.Delete(moduleIndexYamlFileInfo.FullName);
             File.Move(tempNewIndexYamlFile, moduleIndexYamlFileInfo.FullName);
